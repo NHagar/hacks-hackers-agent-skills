@@ -1,38 +1,78 @@
 ---
-name: harmonize-names 
-description: Takes names in a file and, with user input, changes them as needed. Use when asked to fix/harmonize/edit a column of names or similar in a CSV. 
+name: harmonize-names
+description: Normalize names in a CSV column with user guidance. Use when asked to fix, harmonize, or edit a column of names or similar values.
 ---
 
-## Understand the structure of the CSV.
+## Inspect the CSV
 
 ```bash
 head -n 5 input.csv
 ```
 
-If headers are present in the first row, read the headers and the first few lines of data and identify the column most likely to contain the data the user looking for. If multiple columns might apply, ask the user which column to work on. There may be extra rows and you may need to ignore them.
+If the CSV has headers, read the header row and a few data rows to identify the column that most likely contains the target names. If more than one column could apply, ask the user which one to work on. Ignore any obvious trailing notes or extra rows.
 
-Note the index and name of the column.
+Record the column name and index.
 
-## Build a crosswalk file
+## Build a crosswalk
 
-The crosswalk file will be a CSV (`<column name>_crosswalk.csv`) and it will have two columns: `raw` and `mapped`. It should be located in a folder called `intermediate/` in the same folder as the CSV.
+Create a crosswalk CSV named `<column name>_crosswalk.csv` with two columns: `raw` and `mapped`. Store it in an `intermediate/` folder next to the source CSV. If the file already exists, ask the user whether they want to continue. If so, you may continue and overwrite the file.
 
-Extract the unique values from the data in the column by using the `csv` library in Python.
+Use Python's `csv` library to extract the unique values from the target column.
 
-## Read and compare
+```python
+import csv
 
-Read through the columns and look for inconsistencies and misspellings.
+target_column = "name"  # Replace with the detected column name.
+
+with open("input.csv", newline="", encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    unique_values = sorted({row[target_column] for row in reader if row.get(target_column)})
+
+print(unique_values)
+```
+
+## Review values
+
+Review the extracted values for inconsistencies and misspellings.
 
 1. Clear misspellings of one or two letters can be corrected and should be noted to the user.
-2. For any name that seems like multiple entries might refer to the same thing (e.g., "USA", "United States of America", "US of A"), propose to the user a version to replace them with.
+2. If multiple values appear to refer to the same entity, propose a single replacement value to the user. For example: `USA`, `United States of America`, and `US of A` might combine to `USA`.
 
-For both of these kinds of changes, add them to the crosswalk by appending the raw and corrected versions in the relevant columns.
+For both kinds of changes, append the raw and corrected values to the crosswalk.
 
-## Fix the spreadsheet
+## Apply the crosswalk
 
-Use the csv library in Python to write and execute a code snippet that:
+Use Python's `csv` library to write and run a script that:
 
 1. Reads the crosswalk file
 2. Reads the data csv
-3. Makes the replacements from the crosswalk in the relevant data column
-4. Saves the corrected data as a csv in a folder called processed/ at the same level/location as the CSV
+3. Replaces values in the target column using the crosswalk
+4. Saves the corrected CSV in a `processed/` folder at the same level as the source CSV
+
+```python
+import csv
+from pathlib import Path
+
+source_csv = Path("input.csv")
+crosswalk_csv = Path("intermediate/name_crosswalk.csv")
+output_csv = Path("processed/input_corrected.csv")
+target_column = "name"  # Replace with the detected column name.
+
+with crosswalk_csv.open(newline="", encoding="utf-8") as f:
+    mapping = {row["raw"]: row["mapped"] for row in csv.DictReader(f)}
+
+with source_csv.open(newline="", encoding="utf-8") as f:
+    rows = list(csv.DictReader(f))
+    fieldnames = rows[0].keys()
+
+for row in rows:
+    value = row.get(target_column)
+    if value in mapping:
+        row[target_column] = mapping[value]
+
+output_csv.parent.mkdir(parents=True, exist_ok=True)
+with output_csv.open("w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+```
